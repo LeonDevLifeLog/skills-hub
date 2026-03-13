@@ -1606,14 +1606,6 @@
   text-align: right;
 }
 
-.explore-source a {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.explore-source a:hover {
-  text-decoration: underline;
-}
 
 .explore-loading,
 .explore-empty {

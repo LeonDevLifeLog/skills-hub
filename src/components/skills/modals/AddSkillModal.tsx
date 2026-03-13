@@ -131,14 +131,7 @@ const AddSkillModal = ({
                 onChange={(e) => onExploreFilterChange(e.target.value)}
               />
               <div className="explore-source">
-                {t('exploreSource')}{' '}
-                <a
-                  href="https://clawhub.ai"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  clawhub.ai
-                </a>
+                {t('exploreSource')} clawhub.ai
               </div>
               {featuredLoading ? (
                 <div className="explore-loading">{t('exploreLoading')}</div>
