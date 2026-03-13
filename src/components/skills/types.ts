@@ -84,3 +84,12 @@ export type UpdateResultDto = {
   source_revision?: string | null
   updated_targets: string[]
 }
+
+export type FeaturedSkillDto = {
+  slug: string
+  name: string
+  summary: string
+  downloads: number
+  stars: number
+  source_url: string
+}

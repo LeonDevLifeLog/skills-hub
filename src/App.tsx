@@ -15,6 +15,7 @@ import NewToolsModal from './components/skills/modals/NewToolsModal'
 import SharedDirModal from './components/skills/modals/SharedDirModal'
 import SettingsModal from './components/skills/modals/SettingsModal'
 import type {
+  FeaturedSkillDto,
   GitSkillCandidate,
   InstallResultDto,
   LocalSkillCandidate,
@@ -77,7 +78,10 @@ function App() {
   } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'updated' | 'name'>('updated')
-  const [addModalTab, setAddModalTab] = useState<'local' | 'git'>('git')
+  const [addModalTab, setAddModalTab] = useState<'local' | 'git' | 'explore'>('explore')
+  const [featuredSkills, setFeaturedSkills] = useState<FeaturedSkillDto[]>([])
+  const [featuredLoading, setFeaturedLoading] = useState(false)
+  const [exploreFilter, setExploreFilter] = useState('')
 
   const isTauri =
     typeof window !== 'undefined' &&
@@ -509,9 +513,28 @@ function App() {
     setShowSettingsModal(true)
   }, [])
 
+  const loadFeaturedSkills = useCallback(async () => {
+    if (featuredSkills.length > 0) return
+    setFeaturedLoading(true)
+    try {
+      const result = await invokeTauri<FeaturedSkillDto[]>('get_featured_skills')
+      setFeaturedSkills(result)
+    } catch {
+      // silent — explore tab will show empty state
+    } finally {
+      setFeaturedLoading(false)
+    }
+  }, [featuredSkills.length, invokeTauri])
+
+  const handleSelectFeaturedSkill = useCallback((sourceUrl: string) => {
+    setGitUrl(sourceUrl)
+    setAddModalTab('git')
+  }, [])
+
   const handleOpenAdd = useCallback(() => {
     setShowAddModal(true)
-  }, [])
+    loadFeaturedSkills()
+  }, [loadFeaturedSkills])
 
   const handleCloseAdd = useCallback(() => {
     if (!loading) setShowAddModal(false)
@@ -1585,6 +1608,11 @@ function App() {
         syncTargets={syncTargets}
         installedTools={installedTools}
         toolStatus={toolStatus}
+        featuredSkills={featuredSkills}
+        featuredLoading={featuredLoading}
+        exploreFilter={exploreFilter}
+        onExploreFilterChange={setExploreFilter}
+        onSelectFeaturedSkill={handleSelectFeaturedSkill}
         onRequestClose={handleCloseAdd}
         onTabChange={setAddModalTab}
         onLocalPathChange={setLocalPath}

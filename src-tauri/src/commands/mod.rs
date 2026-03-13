@@ -9,6 +9,7 @@ use crate::core::cache_cleanup::{
     set_git_cache_ttl_secs as set_git_cache_ttl_secs_core,
 };
 use crate::core::central_repo::{ensure_central_repo, resolve_central_repo_path};
+use crate::core::featured_skills::{fetch_featured_skills, FeaturedSkill};
 use crate::core::github_search::{search_github_repos, RepoSummary};
 use crate::core::installer::{
     install_git_skill, install_git_skill_from_selection, install_local_skill,
@@ -784,6 +785,43 @@ fn get_managed_skills_impl(store: &SkillStore) -> Result<Vec<ManagedSkillDto>, S
             }
         })
         .collect())
+}
+
+#[derive(Debug, Serialize)]
+pub struct FeaturedSkillDto {
+    pub slug: String,
+    pub name: String,
+    pub summary: String,
+    pub downloads: u64,
+    pub stars: u64,
+    pub source_url: String,
+}
+
+impl From<FeaturedSkill> for FeaturedSkillDto {
+    fn from(s: FeaturedSkill) -> Self {
+        Self {
+            slug: s.slug,
+            name: s.name,
+            summary: s.summary,
+            downloads: s.downloads,
+            stars: s.stars,
+            source_url: s.source_url,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_featured_skills(
+    store: State<'_, SkillStore>,
+) -> Result<Vec<FeaturedSkillDto>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let skills = fetch_featured_skills(&store)?;
+        Ok::<_, anyhow::Error>(skills.into_iter().map(FeaturedSkillDto::from).collect())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
 }
 
 #[cfg(test)]
