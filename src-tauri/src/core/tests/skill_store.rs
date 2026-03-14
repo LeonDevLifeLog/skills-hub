@@ -179,6 +179,70 @@ fn deleting_skill_cascades_targets() {
 }
 
 #[test]
+fn description_stored_and_retrieved() {
+    let (_dir, store) = make_store();
+    let mut skill = make_skill("d1", "D1", "/central/d1", 1);
+    skill.description = Some("A test skill description".to_string());
+    store.upsert_skill(&skill).unwrap();
+
+    let got = store.get_skill_by_id("d1").unwrap().unwrap();
+    assert_eq!(got.description.as_deref(), Some("A test skill description"));
+}
+
+#[test]
+fn description_null_by_default() {
+    let (_dir, store) = make_store();
+    let skill = make_skill("d2", "D2", "/central/d2", 1);
+    store.upsert_skill(&skill).unwrap();
+
+    let got = store.get_skill_by_id("d2").unwrap().unwrap();
+    assert!(got.description.is_none());
+}
+
+#[test]
+fn update_skill_description_backfills() {
+    let (_dir, store) = make_store();
+    let skill = make_skill("d3", "D3", "/central/d3", 1);
+    store.upsert_skill(&skill).unwrap();
+
+    assert!(store
+        .get_skill_by_id("d3")
+        .unwrap()
+        .unwrap()
+        .description
+        .is_none());
+
+    store
+        .update_skill_description("d3", Some("backfilled"))
+        .unwrap();
+    assert_eq!(
+        store
+            .get_skill_by_id("d3")
+            .unwrap()
+            .unwrap()
+            .description
+            .as_deref(),
+        Some("backfilled")
+    );
+}
+
+#[test]
+fn list_skills_missing_description_filters_correctly() {
+    let (_dir, store) = make_store();
+
+    let s1 = make_skill("m1", "M1", "/central/m1", 1);
+    store.upsert_skill(&s1).unwrap();
+
+    let mut s2 = make_skill("m2", "M2", "/central/m2", 2);
+    s2.description = Some("has desc".to_string());
+    store.upsert_skill(&s2).unwrap();
+
+    let missing = store.list_skills_missing_description().unwrap();
+    assert_eq!(missing.len(), 1);
+    assert_eq!(missing[0].id, "m1");
+}
+
+#[test]
 fn error_context_includes_db_path() {
     let store = SkillStore::new(PathBuf::from("/this/path/should/not/exist/test.db"));
     let err = store.ensure_schema().unwrap_err();
