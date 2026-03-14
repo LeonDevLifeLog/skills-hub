@@ -85,7 +85,8 @@ pub fn run() {
             commands::import_existing_skill,
             commands::get_managed_skills,
             commands::delete_managed_skill,
-            commands::get_featured_skills
+            commands::get_featured_skills,
+            commands::search_skills_online
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

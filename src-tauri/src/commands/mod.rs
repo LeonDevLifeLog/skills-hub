@@ -18,6 +18,9 @@ use crate::core::installer::{
 };
 use crate::core::onboarding::{build_onboarding_plan, OnboardingPlan};
 use crate::core::skill_store::{SkillStore, SkillTargetRecord};
+use crate::core::skills_search::{
+    search_skills_online as search_skills_online_core, OnlineSkillResult,
+};
 use crate::core::sync_engine::{
     copy_dir_recursive, sync_dir_for_tool_with_overwrite, sync_dir_hybrid, SyncMode,
 };
@@ -818,6 +821,40 @@ pub async fn get_featured_skills(
     tauri::async_runtime::spawn_blocking(move || {
         let skills = fetch_featured_skills(&store)?;
         Ok::<_, anyhow::Error>(skills.into_iter().map(FeaturedSkillDto::from).collect())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[derive(Debug, Serialize)]
+pub struct OnlineSkillDto {
+    pub name: String,
+    pub installs: u64,
+    pub source: String,
+    pub source_url: String,
+}
+
+impl From<OnlineSkillResult> for OnlineSkillDto {
+    fn from(r: OnlineSkillResult) -> Self {
+        Self {
+            name: r.name,
+            installs: r.installs,
+            source: r.source,
+            source_url: r.source_url,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn search_skills_online(
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<OnlineSkillDto>, String> {
+    let limit = limit.unwrap_or(20) as usize;
+    tauri::async_runtime::spawn_blocking(move || {
+        let results = search_skills_online_core(&query, limit)?;
+        Ok::<_, anyhow::Error>(results.into_iter().map(OnlineSkillDto::from).collect())
     })
     .await
     .map_err(|err| err.to_string())?

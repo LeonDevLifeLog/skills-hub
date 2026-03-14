@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { useTranslation } from 'react-i18next'
 import { Toaster, toast } from 'sonner'
@@ -21,6 +21,7 @@ import type {
   LocalSkillCandidate,
   ManagedSkill,
   OnboardingPlan,
+  OnlineSkillDto,
   ToolOption,
   ToolStatusDto,
   UpdateResultDto,
@@ -82,6 +83,10 @@ function App() {
   const [featuredSkills, setFeaturedSkills] = useState<FeaturedSkillDto[]>([])
   const [featuredLoading, setFeaturedLoading] = useState(false)
   const [exploreFilter, setExploreFilter] = useState('')
+  const [searchResults, setSearchResults] = useState<OnlineSkillDto[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [autoSelectSkillName, setAutoSelectSkillName] = useState<string | null>(null)
 
   const isTauri =
     typeof window !== 'undefined' &&
@@ -528,6 +533,43 @@ function App() {
 
   const handleSelectFeaturedSkill = useCallback((sourceUrl: string) => {
     setGitUrl(sourceUrl)
+    setAddModalTab('git')
+  }, [])
+
+  const handleExploreFilterChange = useCallback(
+    (value: string) => {
+      setExploreFilter(value)
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current)
+        searchTimerRef.current = null
+      }
+      if (value.trim().length < 2) {
+        setSearchResults([])
+        setSearchLoading(false)
+        return
+      }
+      setSearchLoading(true)
+      searchTimerRef.current = setTimeout(async () => {
+        try {
+          const results = await invokeTauri<OnlineSkillDto[]>(
+            'search_skills_online',
+            { query: value.trim(), limit: 20 },
+          )
+          setSearchResults(results)
+        } catch {
+          toast.error(t('searchError'))
+          setSearchResults([])
+        } finally {
+          setSearchLoading(false)
+        }
+      }, 500)
+    },
+    [invokeTauri, t],
+  )
+
+  const handleSelectSearchResult = useCallback((sourceUrl: string, skillName: string) => {
+    setGitUrl(sourceUrl)
+    setAutoSelectSkillName(skillName)
     setAddModalTab('git')
   }, [])
 
@@ -1047,6 +1089,86 @@ function App() {
               }
               if (collectedErrors.length > 0) showActionErrors(collectedErrors)
             }
+          }
+        } else if (autoSelectSkillName) {
+          // Auto-select the matching skill from online search results.
+          // skills.sh name may differ from SKILL.md name (e.g. "json-render-react" vs "react"),
+          // so try exact match first, then containment match.
+          const target = autoSelectSkillName.toLowerCase()
+          const containMatches = candidates.filter((c) =>
+            target.includes(c.name.toLowerCase()),
+          )
+          const match =
+            candidates.find((c) => c.name.toLowerCase() === target) ??
+            (containMatches.length === 1 ? containMatches[0] : undefined)
+          setAutoSelectSkillName(null)
+          if (match) {
+            if (isSkillNameTaken(match.name)) {
+              setError(t('errors.skillAlreadyExists', { name: match.name }))
+              return
+            }
+            const created = await invokeTauri<InstallResultDto>(
+              'install_git_selection',
+              {
+                repoUrl: url,
+                subpath: match.subpath,
+                name: gitName.trim() || undefined,
+              },
+            )
+            {
+              const selectedInstalledIds = tools
+                .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+                .map((t) => t.id)
+              const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+                .map((id) => tools.find((t) => t.id === id))
+                .filter(Boolean) as ToolOption[]
+              if (targets.length === 0) {
+                setError(t('errors.noSyncTargets'))
+              } else {
+                const collectedErrors: { title: string; message: string }[] = []
+                for (let i = 0; i < targets.length; i++) {
+                  const tool = targets[i]
+                  setActionMessage(
+                    t('actions.syncStep', {
+                      index: i + 1,
+                      total: targets.length,
+                      name: created.name,
+                      tool: tool.label,
+                    }),
+                  )
+                  try {
+                    await invokeTauri('sync_skill_to_tool', {
+                      sourcePath: created.central_path,
+                      skillId: created.skill_id,
+                      tool: tool.id,
+                      name: created.name,
+                    })
+                  } catch (err) {
+                    const raw = err instanceof Error ? err.message : String(err)
+                    collectedErrors.push({
+                      title: t('errors.syncFailedTitle', {
+                        name: created.name,
+                        tool: tool.label,
+                      }),
+                      message: raw,
+                    })
+                  }
+                }
+                if (collectedErrors.length > 0) showActionErrors(collectedErrors)
+              }
+            }
+          } else {
+            // No match found, fall back to picker
+            setGitCandidatesRepoUrl(url)
+            setGitCandidates(candidates)
+            setGitCandidateSelected(
+              Object.fromEntries(candidates.map((c) => [c.subpath, true])),
+            )
+            setShowGitPickModal(true)
+            setActionMessage(null)
+            setLoading(false)
+            setLoadingStartAt(null)
+            return
           }
         } else {
           setGitCandidatesRepoUrl(url)
@@ -1611,8 +1733,11 @@ function App() {
         featuredSkills={featuredSkills}
         featuredLoading={featuredLoading}
         exploreFilter={exploreFilter}
-        onExploreFilterChange={setExploreFilter}
+        searchResults={searchResults}
+        searchLoading={searchLoading}
+        onExploreFilterChange={handleExploreFilterChange}
         onSelectFeaturedSkill={handleSelectFeaturedSkill}
+        onSelectSearchResult={handleSelectSearchResult}
         onRequestClose={handleCloseAdd}
         onTabChange={setAddModalTab}
         onLocalPathChange={setLocalPath}

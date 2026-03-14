@@ -93,3 +93,10 @@ export type FeaturedSkillDto = {
   stars: number
   source_url: string
 }
+
+export type OnlineSkillDto = {
+  name: string
+  installs: number
+  source: string
+  source_url: string
+}

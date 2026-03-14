@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react'
 import type { TFunction } from 'i18next'
-import type { FeaturedSkillDto, ToolOption, ToolStatusDto } from '../types'
+import type { FeaturedSkillDto, OnlineSkillDto, ToolOption, ToolStatusDto } from '../types'
 
 type AddSkillModalProps = {
   open: boolean
@@ -17,8 +17,11 @@ type AddSkillModalProps = {
   featuredSkills: FeaturedSkillDto[]
   featuredLoading: boolean
   exploreFilter: string
+  searchResults: OnlineSkillDto[]
+  searchLoading: boolean
   onExploreFilterChange: (value: string) => void
   onSelectFeaturedSkill: (sourceUrl: string) => void
+  onSelectSearchResult: (sourceUrl: string, skillName: string) => void
   onRequestClose: () => void
   onTabChange: (tab: 'local' | 'git' | 'explore') => void
   onLocalPathChange: (value: string) => void
@@ -52,8 +55,11 @@ const AddSkillModal = ({
   featuredSkills,
   featuredLoading,
   exploreFilter,
+  searchResults,
+  searchLoading,
   onExploreFilterChange,
   onSelectFeaturedSkill,
+  onSelectSearchResult,
   onRequestClose,
   onTabChange,
   onLocalPathChange,
@@ -74,6 +80,13 @@ const AddSkillModal = ({
         s.summary.toLowerCase().includes(lower),
     )
   }, [featuredSkills, exploreFilter])
+
+  const deduplicatedResults = useMemo(() => {
+    const featuredNames = new Set(filteredSkills.map((s) => s.name.toLowerCase()))
+    return searchResults.filter((s) => !featuredNames.has(s.name.toLowerCase()))
+  }, [searchResults, filteredSkills])
+
+  const isSearchActive = exploreFilter.trim().length >= 2
 
   if (!open) return null
 
@@ -133,30 +146,71 @@ const AddSkillModal = ({
               <div className="explore-source">
                 {t('exploreSource')} clawhub.ai
               </div>
+
+              {/* Section 1: Featured (local filter) */}
               {featuredLoading ? (
                 <div className="explore-loading">{t('exploreLoading')}</div>
-              ) : filteredSkills.length === 0 ? (
-                <div className="explore-empty">{t('exploreEmpty')}</div>
-              ) : (
-                <div className="explore-list">
-                  {filteredSkills.map((skill) => (
-                    <div
-                      key={skill.slug}
-                      className="explore-skill-item"
-                      onClick={() => onSelectFeaturedSkill(skill.source_url)}
-                    >
-                      <div className="explore-skill-header">
-                        <span className="explore-skill-name">{skill.name}</span>
-                        <span className="explore-skill-stats">
-                          <span title="Downloads">{formatCount(skill.downloads)}</span>
-                          {' / '}
-                          <span title="Stars">{formatCount(skill.stars)}</span>
-                        </span>
+              ) : filteredSkills.length > 0 ? (
+                <>
+                  {isSearchActive && (
+                    <div className="explore-section-title">{t('exploreFeaturedTitle')}</div>
+                  )}
+                  <div className="explore-list">
+                    {filteredSkills.map((skill) => (
+                      <div
+                        key={skill.slug}
+                        className="explore-skill-item"
+                        onClick={() => onSelectFeaturedSkill(skill.source_url)}
+                      >
+                        <div className="explore-skill-header">
+                          <span className="explore-skill-name">{skill.name}</span>
+                          <span className="explore-skill-stats">
+                            <span title="Downloads">{formatCount(skill.downloads)}</span>
+                            {' / '}
+                            <span title="Stars">{formatCount(skill.stars)}</span>
+                          </span>
+                        </div>
+                        <div className="explore-skill-summary">{skill.summary}</div>
                       </div>
-                      <div className="explore-skill-summary">{skill.summary}</div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+
+              {/* Section 2: Online search (only when >= 2 chars) */}
+              {isSearchActive && (
+                <>
+                  <div className="explore-section-title">{t('exploreOnlineTitle')}</div>
+                  {searchLoading ? (
+                    <div className="explore-loading">{t('searchLoading')}</div>
+                  ) : deduplicatedResults.length > 0 ? (
+                    <div className="explore-list">
+                      {deduplicatedResults.map((skill) => (
+                        <div
+                          key={skill.source}
+                          className="explore-skill-item"
+                          onClick={() => onSelectSearchResult(skill.source_url, skill.name)}
+                        >
+                          <div className="explore-skill-header">
+                            <span className="explore-skill-name">{skill.name}</span>
+                            <span className="explore-skill-stats">
+                              {formatCount(skill.installs)} installs
+                            </span>
+                          </div>
+                          <div className="explore-skill-source">{skill.source}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  ) : (
+                    <div className="explore-empty">{t('searchEmpty')}</div>
+                  )}
+                </>
+              )}
+
+              {/* Global empty state */}
+              {!featuredLoading && filteredSkills.length === 0 &&
+               !isSearchActive && (
+                <div className="explore-empty">{t('exploreEmpty')}</div>
               )}
             </div>
           ) : addModalTab === 'local' ? (
