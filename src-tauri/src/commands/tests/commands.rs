@@ -83,6 +83,7 @@ fn get_managed_skills_impl_maps_targets() {
         description: None,
         source_type: "local".to_string(),
         source_ref: Some("/tmp/src".to_string()),
+        source_subpath: None,
         source_revision: None,
         central_path: "/tmp/central".to_string(),
         content_hash: None,

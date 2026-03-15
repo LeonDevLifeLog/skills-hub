@@ -1154,9 +1154,10 @@ function App() {
           // skills.sh name may differ from SKILL.md name (e.g. "json-render-react" vs "react"),
           // so try exact match first, then containment match.
           const target = autoSelectSkillName.toLowerCase()
-          const containMatches = candidates.filter((c) =>
-            target.includes(c.name.toLowerCase()),
-          )
+          const containMatches = candidates.filter((c) => {
+            const n = c.name.toLowerCase()
+            return target.includes(n) || n.includes(target)
+          })
           const match =
             candidates.find((c) => c.name.toLowerCase() === target) ??
             (containMatches.length === 1 ? containMatches[0] : undefined)

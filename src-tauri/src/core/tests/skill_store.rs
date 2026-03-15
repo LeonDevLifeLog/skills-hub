@@ -17,6 +17,7 @@ fn make_skill(id: &str, name: &str, central_path: &str, updated_at: i64) -> Skil
         description: None,
         source_type: "local".to_string(),
         source_ref: Some("/tmp/source".to_string()),
+        source_subpath: None,
         source_revision: None,
         central_path: central_path.to_string(),
         content_hash: None,

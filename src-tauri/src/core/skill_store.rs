@@ -8,7 +8,7 @@ const DB_FILE_NAME: &str = "skills_hub.db";
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.tauri.dev", "com.tauri.dev.skillshub"];
 
 // Schema versioning: bump when making changes and add a migration step.
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 // Minimal schema for MVP: skills, skill_targets, settings, discovered_skills(optional).
 const SCHEMA_V1: &str = r#"
@@ -72,6 +72,7 @@ pub struct SkillRecord {
     pub description: Option<String>,
     pub source_type: String,
     pub source_ref: Option<String>,
+    pub source_subpath: Option<String>,
     pub source_revision: Option<String>,
     pub central_path: String,
     pub content_hash: Option<String>,
@@ -113,11 +114,16 @@ impl SkillStore {
                 conn.execute_batch(SCHEMA_V1)?;
                 // V2: add description column
                 conn.execute_batch("ALTER TABLE skills ADD COLUMN description TEXT NULL;")?;
+                // V3: add source_subpath column
+                conn.execute_batch("ALTER TABLE skills ADD COLUMN source_subpath TEXT NULL;")?;
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version < SCHEMA_VERSION {
                 // Incremental migrations
                 if user_version < 2 {
                     conn.execute_batch("ALTER TABLE skills ADD COLUMN description TEXT NULL;")?;
+                }
+                if user_version < 3 {
+                    conn.execute_batch("ALTER TABLE skills ADD COLUMN source_subpath TEXT NULL;")?;
                 }
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version > SCHEMA_VERSION {
@@ -166,17 +172,18 @@ impl SkillStore {
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO skills (
-          id, name, description, source_type, source_ref, source_revision, central_path, content_hash,
+          id, name, description, source_type, source_ref, source_subpath, source_revision, central_path, content_hash,
           created_at, updated_at, last_sync_at, last_seen_at, status
         ) VALUES (
-          ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-          ?9, ?10, ?11, ?12, ?13
+          ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+          ?10, ?11, ?12, ?13, ?14
         )
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           description = excluded.description,
           source_type = excluded.source_type,
           source_ref = excluded.source_ref,
+          source_subpath = excluded.source_subpath,
           source_revision = excluded.source_revision,
           central_path = excluded.central_path,
           content_hash = excluded.content_hash,
@@ -191,6 +198,7 @@ impl SkillStore {
                     record.description,
                     record.source_type,
                     record.source_ref,
+                    record.source_subpath,
                     record.source_revision,
                     record.central_path,
                     record.content_hash,
@@ -237,7 +245,7 @@ impl SkillStore {
     pub fn list_skills(&self) -> Result<Vec<SkillRecord>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-        "SELECT id, name, description, source_type, source_ref, source_revision, central_path, content_hash,
+        "SELECT id, name, description, source_type, source_ref, source_subpath, source_revision, central_path, content_hash,
                 created_at, updated_at, last_sync_at, last_seen_at, status
          FROM skills
          ORDER BY updated_at DESC",
@@ -249,14 +257,15 @@ impl SkillStore {
                     description: row.get(2)?,
                     source_type: row.get(3)?,
                     source_ref: row.get(4)?,
-                    source_revision: row.get(5)?,
-                    central_path: row.get(6)?,
-                    content_hash: row.get(7)?,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
-                    last_sync_at: row.get(10)?,
-                    last_seen_at: row.get(11)?,
-                    status: row.get(12)?,
+                    source_subpath: row.get(5)?,
+                    source_revision: row.get(6)?,
+                    central_path: row.get(7)?,
+                    content_hash: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                    last_sync_at: row.get(11)?,
+                    last_seen_at: row.get(12)?,
+                    status: row.get(13)?,
                 })
             })?;
 
@@ -271,7 +280,7 @@ impl SkillStore {
     pub fn get_skill_by_id(&self, skill_id: &str) -> Result<Option<SkillRecord>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-        "SELECT id, name, description, source_type, source_ref, source_revision, central_path, content_hash,
+        "SELECT id, name, description, source_type, source_ref, source_subpath, source_revision, central_path, content_hash,
                 created_at, updated_at, last_sync_at, last_seen_at, status
          FROM skills
          WHERE id = ?1
@@ -285,14 +294,15 @@ impl SkillStore {
                     description: row.get(2)?,
                     source_type: row.get(3)?,
                     source_ref: row.get(4)?,
-                    source_revision: row.get(5)?,
-                    central_path: row.get(6)?,
-                    content_hash: row.get(7)?,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
-                    last_sync_at: row.get(10)?,
-                    last_seen_at: row.get(11)?,
-                    status: row.get(12)?,
+                    source_subpath: row.get(5)?,
+                    source_revision: row.get(6)?,
+                    central_path: row.get(7)?,
+                    content_hash: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                    last_sync_at: row.get(11)?,
+                    last_seen_at: row.get(12)?,
+                    status: row.get(13)?,
                 }))
             } else {
                 Ok(None)
@@ -317,7 +327,7 @@ impl SkillStore {
     pub fn list_skills_missing_description(&self) -> Result<Vec<SkillRecord>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-        "SELECT id, name, description, source_type, source_ref, source_revision, central_path, content_hash,
+        "SELECT id, name, description, source_type, source_ref, source_subpath, source_revision, central_path, content_hash,
                 created_at, updated_at, last_sync_at, last_seen_at, status
          FROM skills
          WHERE description IS NULL",
@@ -329,14 +339,15 @@ impl SkillStore {
                     description: row.get(2)?,
                     source_type: row.get(3)?,
                     source_ref: row.get(4)?,
-                    source_revision: row.get(5)?,
-                    central_path: row.get(6)?,
-                    content_hash: row.get(7)?,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
-                    last_sync_at: row.get(10)?,
-                    last_seen_at: row.get(11)?,
-                    status: row.get(12)?,
+                    source_subpath: row.get(5)?,
+                    source_revision: row.get(6)?,
+                    central_path: row.get(7)?,
+                    content_hash: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                    last_sync_at: row.get(11)?,
+                    last_seen_at: row.get(12)?,
+                    status: row.get(13)?,
                 })
             })?;
             let mut items = Vec::new();

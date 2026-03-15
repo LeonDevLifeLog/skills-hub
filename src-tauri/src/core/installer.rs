@@ -63,6 +63,7 @@ pub fn install_local_skill<R: tauri::Runtime>(
         description,
         source_type: "local".to_string(),
         source_ref: Some(source_path.to_string_lossy().to_string()),
+        source_subpath: None,
         source_revision: None,
         central_path: central_path.to_string_lossy().to_string(),
         content_hash: content_hash.clone(),
@@ -259,6 +260,7 @@ pub fn install_git_skill<R: tauri::Runtime>(
         description,
         source_type: "git".to_string(),
         source_ref: Some(repo_url.to_string()),
+        source_subpath: parsed.subpath.clone(),
         source_revision: Some(revision),
         central_path: central_path.to_string_lossy().to_string(),
         content_hash: content_hash.clone(),
@@ -482,6 +484,50 @@ fn extract_skill_info(skill_dir: &Path, repo_dir: &Path) -> (String, Option<Stri
     (name, desc)
 }
 
+/// Scan all skill candidates in a repo directory, returning (name, relative_subpath) pairs.
+/// Used for auto-matching when updating legacy skills with missing source_subpath.
+fn scan_skill_candidates_in_dir(repo_dir: &Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    // Scan known sub-locations
+    for base in SKILL_SCAN_BASES {
+        let base_dir = repo_dir.join(base);
+        if let Ok(rd) = std::fs::read_dir(&base_dir) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                if is_skill_dir(&p) {
+                    let (name, _) = extract_skill_info(&p, repo_dir);
+                    let rel = p
+                        .strip_prefix(repo_dir)
+                        .unwrap_or(&p)
+                        .to_string_lossy()
+                        .to_string();
+                    out.push((name, rel));
+                }
+            }
+        }
+    }
+    // Root-level subdirectories
+    if let Ok(rd) = std::fs::read_dir(repo_dir) {
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if !p.is_dir() {
+                continue;
+            }
+            let dir_name = entry.file_name();
+            let dir_name_str = dir_name.to_string_lossy();
+            if dir_name_str == "skills" || dir_name_str.starts_with('.') {
+                continue;
+            }
+            if p.join("SKILL.md").exists() {
+                let (name, _) =
+                    parse_skill_md(&p.join("SKILL.md")).unwrap_or((dir_name_str.to_string(), None));
+                out.push((name, dir_name_str.to_string()));
+            }
+        }
+    }
+    out
+}
+
 /// Count skill directories in a repo: checks both `skills/*` and root-level subdirectories.
 fn count_skills_in_repo(repo_dir: &Path) -> usize {
     let mut count = 0usize;
@@ -590,7 +636,41 @@ pub fn update_managed_skill_from_source<R: tauri::Runtime>(
         )?;
         new_revision = Some(rev);
 
-        let copy_src = if let Some(subpath) = &parsed.subpath {
+        // Prefer stored source_subpath (from install time) over URL-parsed subpath.
+        // For legacy records where source_subpath is NULL and URL has no subpath,
+        // try to auto-match by skill name in the repo (backfill).
+        let mut resolved_subpath = record
+            .source_subpath
+            .as_deref()
+            .or(parsed.subpath.as_deref())
+            .map(|s| s.to_string());
+        if resolved_subpath.is_none() && count_skills_in_repo(&repo_dir) >= 2 {
+            // Multi-skill repo with no stored subpath: match by name
+            let candidates = scan_skill_candidates_in_dir(&repo_dir);
+            let skill_name = record.name.to_lowercase();
+            if let Some(matched) = candidates.iter().find(|c| c.0 == record.name).or_else(|| {
+                // Fuzzy: bidirectional containment (e.g. "react-best-practices" vs "vercel-react-best-practices")
+                let fuzzy: Vec<_> = candidates
+                    .iter()
+                    .filter(|c| {
+                        let cn = c.0.to_lowercase();
+                        cn.contains(&skill_name) || skill_name.contains(&cn)
+                    })
+                    .collect();
+                if fuzzy.len() == 1 {
+                    Some(fuzzy[0])
+                } else {
+                    None
+                }
+            }) {
+                resolved_subpath = Some(matched.1.clone());
+                // Backfill source_subpath for future updates
+                let mut patched = record.clone();
+                patched.source_subpath = Some(matched.1.clone());
+                let _ = store.upsert_skill(&patched);
+            }
+        }
+        let copy_src = if let Some(subpath) = &resolved_subpath {
             repo_dir.join(subpath)
         } else {
             repo_dir.clone()
@@ -640,6 +720,7 @@ pub fn update_managed_skill_from_source<R: tauri::Runtime>(
         description,
         source_type: record.source_type.clone(),
         source_ref: record.source_ref.clone(),
+        source_subpath: record.source_subpath.clone(),
         source_revision: new_revision.clone().or(record.source_revision.clone()),
         central_path: record.central_path.clone(),
         content_hash: content_hash.clone(),
@@ -1005,12 +1086,18 @@ pub fn install_git_skill_from_selection<R: tauri::Runtime>(
 
     let now = now_ms();
     let content_hash = compute_content_hash(&central_path);
+    let source_subpath = if subpath == "." {
+        None
+    } else {
+        Some(subpath.to_string())
+    };
     let record = SkillRecord {
         id: Uuid::new_v4().to_string(),
         name: display_name,
         description,
         source_type: "git".to_string(),
         source_ref: Some(repo_url.to_string()),
+        source_subpath,
         source_revision: Some(revision),
         central_path: central_path.to_string_lossy().to_string(),
         content_hash: content_hash.clone(),
