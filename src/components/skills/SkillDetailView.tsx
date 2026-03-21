@@ -238,11 +238,60 @@ type FileContentRendererProps = {
   isDark: boolean
 }
 
+function parseFrontmatter(raw: string): {
+  meta: Record<string, string> | null
+  body: string
+} {
+  if (!raw.startsWith('---')) return { meta: null, body: raw }
+  const end = raw.indexOf('\n---', 3)
+  if (end === -1) return { meta: null, body: raw }
+  const block = raw.slice(4, end)
+  const entries: Record<string, string> = {}
+  for (const line of block.split('\n')) {
+    const idx = line.indexOf(':')
+    if (idx === -1) continue
+    const key = line.slice(0, idx).trim()
+    let val = line.slice(idx + 1).trim()
+    // strip surrounding quotes
+    if (
+      val.length >= 2 &&
+      ((val[0] === '"' && val[val.length - 1] === '"') ||
+        (val[0] === "'" && val[val.length - 1] === "'"))
+    ) {
+      val = val.slice(1, -1)
+    }
+    if (key) entries[key] = val
+  }
+  const keys = Object.keys(entries)
+  if (keys.length === 0) return { meta: null, body: raw }
+  const body = raw.slice(end + 4).replace(/^\n+/, '')
+  return { meta: entries, body }
+}
+
 const FileContentRenderer = memo(
   ({ filename, content, isDark }: FileContentRendererProps) => {
     if (isMarkdown(filename)) {
+      const { meta, body } = parseFrontmatter(content)
       return (
         <div className="markdown-body">
+          {meta && (
+            <table>
+              <thead>
+                <tr>
+                  {Object.keys(meta).map((k) => (
+                    <th key={k}>{k}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  {Object.values(meta).map((v, i) => (
+                    <td key={i}>{v}</td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          )}
           <Markdown
             remarkPlugins={[remarkFrontmatter, remarkGfm]}
             components={{
@@ -273,7 +322,7 @@ const FileContentRenderer = memo(
               },
             }}
           >
-            {content}
+            {body}
           </Markdown>
         </div>
       )
