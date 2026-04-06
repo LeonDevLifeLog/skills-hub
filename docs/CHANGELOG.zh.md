@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-06
+
+### 修复
+- **检测到新工具弹窗样式**：「New tools detected」弹窗改用与其他弹窗一致的 `modal-header` + `modal-footer` 结构，修复标题缺少内边距和分隔线的问题（[#46](https://github.com/qufei1993/skills-hub/issues/46)）。
+- **Git 技能名称推导**：从仓库根目录（subpath 为 `"."`）安装 Git 技能时，现在正确从仓库 URL 推导名称，不再以 `"."` 作为展示名称。
+
 ## [0.4.1] - 2026-03-21
 
 ### 新增
